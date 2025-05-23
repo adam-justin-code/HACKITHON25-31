@@ -68,8 +68,8 @@ server <- function(input, output, session) {
       addPolygons(
         fillColor = "blue",
         color = "black",
-        weight = 2,
-        fillOpacity = 0.2
+        weight = 5,
+        fillOpacity = 0.05
       )
   })
 }
