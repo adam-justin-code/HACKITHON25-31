@@ -2,39 +2,71 @@ library(shiny)
 library(leaflet)
 library(sf)
 
-ui <- fluidPage(
-  titlePanel("Mapa okresů ČR z GeoJSON"),
-  leafletOutput("mapaCR", height = 900)
+# UI
+ui <- navbarPage("Mapa okresů",
+                 tabPanel("Mapa",
+                          leafletOutput("mapaCR", height = 600)
+                 ),
+                 tabPanel("Detail okresu",
+                          h3(textOutput("okresNazev")),
+                          p("Zde se zobrazí detailní informace o vybraném okrese."),
+                          leafletOutput("okresMapa", height = 400)
+                 )
 )
 
+# Server
 server <- function(input, output, session) {
+  # Načtení dat
+  okresy <- st_read("data/1/OKRESY_P.shp.geojson", quiet = TRUE)
+  okresy <- st_transform(okresy, 4326)
+  
+  # Reactive value pro výběr okresu
+  vybranyOkres <- reactiveVal(NULL)
+  
+  # Výstup hlavní mapy
   output$mapaCR <- renderLeaflet({
-    # Načti GeoJSON soubor (uprav cestu dle potřeby)
-    okresy <- st_read("C:/Users/janko/Desktop/Hackithon/1/OKRESY_P.shp.geojson", quiet = TRUE)
-    
-    # Převod souřadnic na WGS84 (GPS)
-    okresy <- st_transform(okresy, 4326)
-    
-    # Vykresli mapu s omezeným zoomem a bounds
-    leaflet(okresy, options = leafletOptions(minZoom = 8, maxZoom = 10)) %>%
+    leaflet(okresy) %>%
       addTiles() %>%
       addPolygons(
-        fillColor = "green",
+        layerId = ~NAZEV,
+        fillColor = "red",
         color = "darkgreen",
         weight = 1,
         fillOpacity = 0.5,
-        popup = ~paste0(
-          "<table style='width:100%; font-size:14px;'>",
-          "<tr><th style='text-align:left;'>Název:</th><td>", NAZEV, "</td></tr>",
-          "<tr><th style='text-align:left;'>Kód:</th><td>", KOD, "</td></tr>",
-          "<tr><th style='text-align:left;'>LAU1 kód:</th><td>", LAU1_KOD, "</td></tr>",
-          "<tr><th style='text-align:left;'>VÚSC kód:</th><td>", VUSC_KOD, "</td></tr>",
-          "<tr><th style='text-align:left;'>NUTS3 kód:</th><td>", NUTS3_KOD, "</td></tr>",
-          "</table>"
-        )
+        popup = ~NAZEV
       ) %>%
-      setView(lng = 15.5, lat = 49.8, zoom = 7) %>%
-      setMaxBounds(lng1 = 12.0, lat1 = 48.5, lng2 = 19.0, lat2 = 51.2)
+      setView(lng = 15.25, lat = 49.75, zoom = 7) %>%
+      setMaxBounds(11.8, 48.5, 18.9, 51.3)
+  })
+  
+  # Kliknutí na polygon => přejdi do detailu
+  observeEvent(input$mapaCR_shape_click, {
+    vybranyOkres(input$mapaCR_shape_click$id)
+    updateNavbarPage(session, "Mapa okresů", selected = "Detail okresu")
+  })
+  
+  # Výstup názvu okresu
+  output$okresNazev <- renderText({
+    req(vybranyOkres())
+    paste("Okres:", vybranyOkres())
+  })
+  
+  # Výstup detailní mapy
+  output$okresMapa <- renderLeaflet({
+    req(vybranyOkres())
+    detail <- subset(okresy, NAZEV == vybranyOkres())
+    
+    leaflet(detail) %>%
+      addTiles() %>%
+      addPolygons(
+        fillColor = "blue",
+        color = "black",
+        weight = 2,
+        fillOpacity = 0.6
+      ) %>%
+      setView(lng = st_coordinates(st_centroid(detail))[1],
+              lat = st_coordinates(st_centroid(detail))[2],
+              zoom = 10)
   })
 }
 
