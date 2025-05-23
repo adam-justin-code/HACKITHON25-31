@@ -5,12 +5,12 @@ library(sf)
 # UI
 ui <- navbarPage("Mapa okresů",
                  tabPanel("Mapa",
-                          leafletOutput("mapaCR", height = 600)
+                          leafletOutput("mapaCR", height = 900)
                  ),
                  tabPanel("Detail okresu",
                           h3(textOutput("okresNazev")),
                           p("Zde se zobrazí detailní informace o vybraném okrese."),
-                          leafletOutput("okresMapa", height = 400)
+                          leafletOutput("okresMapa", height = 900)
                  )
 )
 
@@ -23,14 +23,14 @@ server <- function(input, output, session) {
   # Reactive value pro výběr okresu
   vybranyOkres <- reactiveVal(NULL)
   
-  # Výstup hlavní mapy
+  # Výstup hlavní mapy s omezením zoomu a bounds na ČR
   output$mapaCR <- renderLeaflet({
-    leaflet(okresy) %>%
+    leaflet(okresy, options = leafletOptions(minZoom = 8, maxZoom = 15)) %>%
       addTiles() %>%
       addPolygons(
         layerId = ~NAZEV,
-        fillColor = "red",
-        color = "darkgreen",
+        fillColor = "green",
+        color = "black",
         weight = 1,
         fillOpacity = 0.5,
         popup = ~NAZEV
@@ -51,23 +51,28 @@ server <- function(input, output, session) {
     paste("Okres:", vybranyOkres())
   })
   
-  # Výstup detailní mapy
+  # Výstup detailní mapy s omezením na konkrétní okres
   output$okresMapa <- renderLeaflet({
     req(vybranyOkres())
     detail <- subset(okresy, NAZEV == vybranyOkres())
     
-    leaflet(detail) %>%
+    # Bounding box okresu
+    bbox <- st_bbox(detail)
+    
+    # Výpočet středu bboxu (bez centroidu = žádné varování)
+    center_lng <- (bbox["xmin"] + bbox["xmax"]) / 2
+    center_lat <- (bbox["ymin"] + bbox["ymax"]) / 2
+    
+    leaflet(detail, options = leafletOptions(minZoom = 11, maxZoom = 18)) %>%
       addTiles() %>%
       addPolygons(
         fillColor = "blue",
         color = "black",
         weight = 2,
-        fillOpacity = 0.6
-      ) %>%
-      setView(lng = st_coordinates(st_centroid(detail))[1],
-              lat = st_coordinates(st_centroid(detail))[2],
-              zoom = 10)
+        fillOpacity = 0.2
+      )
   })
 }
 
+# Spuštění aplikace
 shinyApp(ui, server)
