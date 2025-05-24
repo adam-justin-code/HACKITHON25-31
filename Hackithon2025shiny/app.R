@@ -145,8 +145,8 @@ server <- function(input, output, session) {
       clearGroup("vybrany") %>%
       addPolygons(
         data = detail,
-        fillColor = "blue",
-        fillOpacity = 0.4,
+        fillColor = "green",
+        fillOpacity = 0.5,
         color = "black",
         weight = 3,
         group = "vybrany"
