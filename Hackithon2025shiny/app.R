@@ -3,15 +3,34 @@ library(leaflet)
 library(sf)
 
 # UI
-ui <- navbarPage("Mapa okresů",
-                 tabPanel("Mapa",
-                          leafletOutput("mapaCR", height = 900)
+ui <- navbarPage("Vizualizace statistických informací na území ČR",
+                 tabPanel("Mapa okresů",
+                          div(
+                            style = "height:90vh; width:100%;",
+                            leafletOutput("mapaCR", height = "100%", width = "100%")
+                          )
                  ),
                  tabPanel("Detail okresu",
-                          h3(textOutput("okresNazev")),
-                          p("Zde se zobrazí detailní informace o vybraném okrese."),
-                          leafletOutput("okresMapa", height = 900)
+                          fluidRow(
+                            column(
+                              width = 4,
+                              div(
+                                style = "background-color: #f0f0f0; padding: 20px; height: 90vh;",
+                                h3(textOutput("okresNazev")),
+                                p("Zde se zobrazí detailní informace o vybraném okrese."),
+                                p("Sem můžeš přidat další statistiky, grafy, nebo tabulky.")
+                              )
+                            ),
+                            column(
+                              width = 8,
+                              div(
+                                style = "background-color: #e0f7e0; height: 90vh;",
+                                leafletOutput("okresMapa", height = "100%", width = "100%")
+                              )
+                            )
+                          )
                  )
+                 
 )
 
 # Server
