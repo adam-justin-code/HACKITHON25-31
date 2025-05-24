@@ -11,7 +11,6 @@ library(ggplot2)
 # ==== UI ====
 ui <- navbarPage("Vizualizace statistických informací na území ČR",
                  
-                 # --- Mapa okresů ---
                  tabPanel("Mapa okresů",
                           div(
                             style = "height:90vh; width:100%;",
@@ -19,7 +18,6 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                           )
                  ),
                  
-                 # --- Detail okresu ---
                  tabPanel("Detail okresu",
                           fluidRow(
                             column(
@@ -64,12 +62,21 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                               )
                             )
                           )
-                 )
+                 ),
                  
+                 tabPanel("Nezaměstnanost",
+                          leafletOutput("mapaNezamestnanost", height = "90vh", width = "100%")
+                 )
 )
 
 # ==== SERVER ====
 server <- function(input, output, session) {
+  
+  # --- 0. Načtení dat nezaměstnanosti ---
+  df_nezamestnanost <- read.csv("data/nezamestnanost.csv", encoding = "UTF-8") %>%
+    rename(Obec = Obec, nezamestnanost = Hodnota) %>%
+    mutate(nazev_norm = stri_trans_general(tolower(trimws(Obec)), "Latin-ASCII"))
+  
   
   # --- 1. Získání dat z API ---
   res_obyv <- httr::GET("http://127.0.0.1:8000/okresy")
@@ -89,7 +96,7 @@ server <- function(input, output, session) {
     as.data.frame() %>%
     mutate(nazev_norm = stri_trans_general(tolower(trimws(uzemi_txt)), "Latin-ASCII"))
   
-  # --- 2. Načtení prostorových dat ---
+  # --- 2. Načtení shapefile ---
   okresy <- st_read("data/1/OKRESY_P.shp.geojson", quiet = TRUE) %>%
     st_transform(4326) %>%
     mutate(
@@ -114,7 +121,7 @@ server <- function(input, output, session) {
         color = "darkgreen",
         weight = 1,
         label = ~paste0(NAZEV_polygon, ": ", format(pocet, big.mark = " ", scientific = FALSE)),
-        highlightOptions = highlightOptions(color = "blue", weight = 2, bringToFront = TRUE,fill = TRUE,fillOpacity = 0.2,fillColor = "blue")
+        highlightOptions = highlightOptions(color = "blue", weight = 2, bringToFront = TRUE)
       ) %>%
       addLegend(
         pal = pal,
@@ -131,14 +138,9 @@ server <- function(input, output, session) {
   observeEvent(input$mapaCR_shape_click, {
     vybrany_id <- trimws(input$mapaCR_shape_click$id)
     vybranyOkres(vybrany_id)
-    
-    # Přepnutí na detail
     updateNavbarPage(session, "Mapa okresů", selected = "Detail okresu")
-    
-    # Zvýraznění vybraného polygonu
     data <- reactive_data()
     detail <- data %>% filter(nazev_norm == vybrany_id)
-    
     leafletProxy("mapaCR") %>%
       clearGroup("vybrany") %>%
       addPolygons(
@@ -150,7 +152,6 @@ server <- function(input, output, session) {
         group = "vybrany"
       )
   })
-  
   
   # --- 6. Výstupy pro detail okresu ---
   output$okresNazev <- renderText({
@@ -182,12 +183,10 @@ server <- function(input, output, session) {
       setView(lng = coords[1], lat = coords[2], zoom = 11)
   })
   
-  # --- 7. Grafy pro detail okresu ---
+  # --- 7. Grafy detail okresu ---
   output$grafPohlavi <- renderPlot({
     req(vybranyOkres())
-    
-    # Filtrování dat pro vybraný okres
-    df_okres <- df_obyv %>% 
+    df_okres <- df_obyv %>%
       filter(nazev_norm == vybranyOkres()) %>%
       group_by(pohlavi_txt) %>%
       summarise(pocet = sum(pocet), .groups = "drop") %>%
@@ -196,7 +195,6 @@ server <- function(input, output, session) {
         popisek = paste0(pohlavi_txt, "\n", procenta, "%")
       )
     
-    # Vykreslení koláčového grafu s procenty
     ggplot(df_okres, aes(x = "", y = pocet, fill = pohlavi_txt)) +
       geom_bar(stat = "identity", width = 1) +
       coord_polar("y") +
@@ -207,7 +205,6 @@ server <- function(input, output, session) {
       scale_fill_manual(values = c("muž" = "#1f77b4", "žena" = "#ff7f0e")) +
       labs(fill = "Pohlaví")
   })
-  
   
   output$grafMaterial <- renderPlot({
     req(vybranyOkres())
@@ -227,12 +224,10 @@ server <- function(input, output, session) {
                              selected = materialy)
   })
   
-  # --- 9. Sloupcový graf napříč okresy ---
+  # --- 9. Sloupcový graf materiálů napříč okresy ---
   output$sloupcovyGrafMaterial <- renderPlot({
     req(input$vybrane_materialy)
-    
     df_filtered <- df_mat %>% filter(material_txt %in% input$vybrane_materialy)
-    
     df_agg <- df_filtered %>%
       group_by(nazev_norm, material_txt) %>%
       summarise(pocet = sum(pocet, na.rm = TRUE), .groups = "drop")
@@ -242,15 +237,40 @@ server <- function(input, output, session) {
       labs(x = "Okres", y = "Počet budov", fill = "Materiál") +
       theme_minimal() +
       theme(
-        axis.text.x = element_text(angle = 90, hjust = 1, size = 14),  # větší názvy okresů
+        axis.text.x = element_text(angle = 90, hjust = 1, size = 14),
         axis.text.y = element_text(size = 13),
         axis.title = element_text(size = 16),
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)
       ) +
-      scale_y_continuous(labels = scales::label_comma())  # normální čísla místo 1e+07
+      scale_y_continuous(labels = scales::label_comma())
   })
   
+  # --- 10. Heatmapa nezaměstnanosti ---
+  output$mapaNezamestnanost <- renderLeaflet({
+    mapa_nez <- left_join(okresy, df_nezamestnanost, by = "nazev_norm")
+    
+    pal_nez <- colorNumeric("Blues", domain = mapa_nez$nezamestnanost, na.color = "#cccccc")
+    
+    leaflet(mapa_nez) %>%
+      addTiles() %>%
+      addPolygons(
+        fillColor = ~pal_nez(nezamestnanost),
+        fillOpacity = 0.8,
+        color = "white",
+        weight = 1,
+        label = ~paste0(NAZEV_polygon, ": ", nezamestnanost, " %"),
+        highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
+      ) %>%
+      addLegend(
+        pal = pal_nez,
+        values = ~nezamestnanost,
+        opacity = 0.8,
+        title = "Nezaměstnanost (%)",
+        position = "bottomright"
+      ) %>%
+      setView(lng = 15.25, lat = 49.75, zoom = 7)
+  })
 }
 
 # ==== Spuštění aplikace ====
