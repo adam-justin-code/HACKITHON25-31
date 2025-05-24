@@ -181,7 +181,7 @@ server <- function(input, output, session) {
     center <- st_centroid(st_union(detail))
     coords <- st_coordinates(center)
     
-    m <- leaflet() %>%
+    m <- leaflet(options = leafletOptions(minZoom = 10, maxZoom = 17)) %>%
       addTiles() %>%
       addPolygons(data = detail,
                   fillColor = "blue",
@@ -201,8 +201,11 @@ server <- function(input, output, session) {
                     group = "obce")
     }
     
-    m %>% setView(lng = coords[1], lat = coords[2], zoom = 11)
+    m %>%
+      setView(lng = coords[1], lat = coords[2], zoom = 11) %>%
+      setMaxBounds(11.8, 48.5, 18.9, 51.3)  # volitelné: omezení pohybu mimo ČR
   })
+  
   
   # --- 8. Grafy detail okresu ---
   output$grafPohlavi <- renderPlot({
