@@ -57,7 +57,10 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                             fluidRow(
                               column(
                                 width = 12,
-                                plotOutput("sloupcovyGrafMaterial", height = "600px")
+                                div(
+                                  style = "overflow-x: auto;",
+                                  plotOutput("sloupcovyGrafMaterial", height = "600px", width = "2000px")
+                                )
                               )
                             )
                           )
@@ -227,7 +230,9 @@ server <- function(input, output, session) {
   # --- 9. Sloupcový graf napříč okresy ---
   output$sloupcovyGrafMaterial <- renderPlot({
     req(input$vybrane_materialy)
+    
     df_filtered <- df_mat %>% filter(material_txt %in% input$vybrane_materialy)
+    
     df_agg <- df_filtered %>%
       group_by(nazev_norm, material_txt) %>%
       summarise(pocet = sum(pocet, na.rm = TRUE), .groups = "drop")
@@ -236,8 +241,16 @@ server <- function(input, output, session) {
       geom_bar(stat = "identity", position = "stack") +
       labs(x = "Okres", y = "Počet budov", fill = "Materiál") +
       theme_minimal() +
-      theme(axis.text.x = element_text(angle = 90, hjust = 1))
+      theme(
+        axis.text.x = element_text(angle = 90, hjust = 1, size = 14),  # větší názvy okresů
+        axis.text.y = element_text(size = 13),
+        axis.title = element_text(size = 16),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)
+      ) +
+      scale_y_continuous(labels = scales::label_comma())  # normální čísla místo 1e+07
   })
+  
 }
 
 # ==== Spuštění aplikace ====
