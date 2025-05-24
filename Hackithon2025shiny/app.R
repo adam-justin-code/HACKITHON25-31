@@ -21,6 +21,7 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                               div(
                                 style = "background-color: #f0f0f0; padding: 20px; height: 90vh;",
                                 h3(textOutput("okresNazev")),
+                                h3(textOutput("pocetObyvatel")),
                                 p("Zde se zobrazí detailní informace o vybraném okrese."),
                                 p("Sem můžeš přidat další statistiky, grafy, nebo tabulky.")
                               )
@@ -67,6 +68,13 @@ server <- function(input, output, session) {
       nazev_norm = stri_trans_general(tolower(NAZEV_polygon), "Latin-ASCII"),
       nazev_norm = trimws(nazev_norm)
     )
+  output$pocetObyvatel <- renderText({
+    req(vybranyOkres())
+    data <- reactive_data()
+    pocet <- data$pocet[data$nazev_norm == vybranyOkres()]
+    if (is.na(pocet)) return("N/A")
+    format(pocet, big.mark = " ", scientific = FALSE)
+  })
   
   # 5. Spojení prostorových dat s daty z API
   map_data <- left_join(okresy, df_db, by = "nazev_norm")
