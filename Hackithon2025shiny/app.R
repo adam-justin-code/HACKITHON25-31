@@ -252,7 +252,7 @@ server <- function(input, output, session) {
     
     pal_nez <- colorNumeric("Blues", domain = mapa_nez$nezamestnanost, na.color = "#cccccc")
     
-    leaflet(mapa_nez) %>%
+    leaflet(mapa_nez, options = leafletOptions(minZoom = 8, maxZoom = 15)) %>%
       addTiles() %>%
       addPolygons(
         fillColor = ~pal_nez(nezamestnanost),
@@ -269,7 +269,8 @@ server <- function(input, output, session) {
         title = "Nezaměstnanost (%)",
         position = "bottomright"
       ) %>%
-      setView(lng = 15.25, lat = 49.75, zoom = 7)
+      setView(lng = 15.25, lat = 49.75, zoom = 7) %>%
+      setMaxBounds(11.8, 48.5, 18.9, 51.3)
   })
 }
 
