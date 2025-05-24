@@ -1,3 +1,4 @@
+# ==== Knihovny ====
 library(shiny)
 library(leaflet)
 library(sf)
@@ -7,14 +8,18 @@ library(dplyr)
 library(stringi)
 library(ggplot2)
 
-# UI
+# ==== UI ====
 ui <- navbarPage("Vizualizace statistických informací na území ČR",
+                 
+                 # --- Mapa okresů ---
                  tabPanel("Mapa okresů",
                           div(
                             style = "height:90vh; width:100%;",
                             leafletOutput("mapaCR", height = "100%", width = "100%")
                           )
                  ),
+                 
+                 # --- Detail okresu ---
                  tabPanel("Detail okresu",
                           fluidRow(
                             column(
@@ -27,7 +32,7 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                                 h4("Poměr mužů a žen:"),
                                 plotOutput("grafPohlavi", height = "250px"),
                                 h4("Materiál budov:"),
-                                plotOutput("grafMaterial", height = "250px"),
+                                plotOutput("grafMaterial", height = "250px")
                               )
                             ),
                             column(
@@ -38,14 +43,32 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                               )
                             )
                           )
+                 ),
+                 
+                 tabPanel("Porovnání materiálů",
+                          fluidPage(
+                            fluidRow(
+                              column(
+                                width = 12,
+                                checkboxGroupInput("vybrane_materialy", "Vyber typy materiálu:",
+                                                   choices = NULL, selected = NULL, inline = TRUE)
+                              )
+                            ),
+                            fluidRow(
+                              column(
+                                width = 12,
+                                plotOutput("sloupcovyGrafMaterial", height = "600px")
+                              )
+                            )
+                          )
                  )
+                 
 )
 
-# SERVER
+# ==== SERVER ====
 server <- function(input, output, session) {
-  # === 1. Získání dat z API ===
   
-  ## API: /okresy (muži, ženy)
+  # --- 1. Získání dat z API ---
   res_obyv <- httr::GET("http://127.0.0.1:8000/okresy")
   df_obyv <- fromJSON(content(res_obyv, "text", encoding = "UTF-8"))$okresy %>%
     as.data.frame() %>%
@@ -58,13 +81,12 @@ server <- function(input, output, session) {
     group_by(nazev_norm) %>%
     summarise(pocet = sum(pocet, na.rm = TRUE), .groups = "drop")
   
-  ## API: /druh_materialu
   res_mat <- httr::GET("http://127.0.0.1:8000/druh_materialu")
   df_mat <- fromJSON(content(res_mat, "text", encoding = "UTF-8"))$okresy %>%
     as.data.frame() %>%
     mutate(nazev_norm = stri_trans_general(tolower(trimws(uzemi_txt)), "Latin-ASCII"))
   
-  # === 2. Načtení shapefile ===
+  # --- 2. Načtení prostorových dat ---
   okresy <- st_read("data/1/OKRESY_P.shp.geojson", quiet = TRUE) %>%
     st_transform(4326) %>%
     mutate(
@@ -72,17 +94,13 @@ server <- function(input, output, session) {
       nazev_norm = stri_trans_general(tolower(trimws(NAZEV)), "Latin-ASCII")
     )
   
-  # === 3. Spojení prostorových dat s počtem obyvatel ===
+  # --- 3. Spojení dat ---
   map_data <- left_join(okresy, df_obyv_suma, by = "nazev_norm")
   reactive_data <- reactiveVal(map_data)
-  
-  # === 4. Vybraný okres (reactive)
   vybranyOkres <- reactiveVal(NULL)
-  
-  # === 5. Výpočet barev
   pal <- colorNumeric("YlOrRd", domain = map_data$pocet, na.color = "#cccccc")
   
-  # === 6. Hlavní mapa
+  # --- 4. Mapa ČR ---
   output$mapaCR <- renderLeaflet({
     leaflet(map_data, options = leafletOptions(minZoom = 8, maxZoom = 15)) %>%
       addTiles() %>%
@@ -106,42 +124,31 @@ server <- function(input, output, session) {
       setMaxBounds(11.8, 48.5, 18.9, 51.3)
   })
   
-  # === 7. Kliknutí na polygon
+  # --- 5. Kliknutí na polygon ---
   observeEvent(input$mapaCR_shape_click, {
     vybranyOkres(trimws(input$mapaCR_shape_click$id))
     updateNavbarPage(session, "Mapa okresů", selected = "Detail okresu")
   })
   
-  # === 8. Výpis názvu
+  # --- 6. Výstupy pro detail okresu ---
   output$okresNazev <- renderText({
     req(vybranyOkres())
-    data <- reactive_data()
-    data$NAZEV_polygon[data$nazev_norm == vybranyOkres()]
+    reactive_data()$NAZEV_polygon[reactive_data()$nazev_norm == vybranyOkres()]
   })
   
-  # === 9. Výpis počtu obyvatel
   output$pocetObyvatel <- renderText({
     req(vybranyOkres())
-    data <- reactive_data()
-    pocet <- data$pocet[data$nazev_norm == vybranyOkres()]
-    if (is.na(pocet)) return("N/A")+
+    pocet <- reactive_data()$pocet[reactive_data()$nazev_norm == vybranyOkres()]
+    if (is.na(pocet)) return("N/A")
     format(pocet, big.mark = " ", scientific = FALSE)
-    print(pocet)
   })
   
-  # === 10. Mapa vybraného okresu
   output$okresMapa <- renderLeaflet({
     req(vybranyOkres())
-    data <- reactive_data()
-    detail <- data %>% filter(nazev_norm == vybranyOkres())
-    
-    if (nrow(detail) == 0) {
-      return(leaflet() %>% addTiles())
-    }
-    
+    detail <- reactive_data() %>% filter(nazev_norm == vybranyOkres())
+    if (nrow(detail) == 0) return(leaflet() %>% addTiles())
     center <- st_centroid(st_union(detail))
     coords <- st_coordinates(center)
-    
     leaflet(detail, options = leafletOptions(minZoom = 11, maxZoom = 18)) %>%
       addTiles() %>%
       addPolygons(
@@ -153,7 +160,7 @@ server <- function(input, output, session) {
       setView(lng = coords[1], lat = coords[2], zoom = 11)
   })
   
-  # === 11. Graf: poměr muž/žena
+  # --- 7. Grafy pro detail okresu ---
   output$grafPohlavi <- renderPlot({
     req(vybranyOkres())
     df_okres <- df_obyv %>% filter(nazev_norm == vybranyOkres())
@@ -165,7 +172,6 @@ server <- function(input, output, session) {
       labs(fill = "Pohlaví")
   })
   
-  # === 12. Graf: materiál budov
   output$grafMaterial <- renderPlot({
     req(vybranyOkres())
     df_okres <- df_mat %>% filter(nazev_norm == vybranyOkres())
@@ -175,7 +181,30 @@ server <- function(input, output, session) {
       theme_void() +
       labs(fill = "Materiál")
   })
+  
+  # --- 8. Filtrování typů materiálu ---
+  observe({
+    materialy <- sort(unique(df_mat$material_txt))
+    updateCheckboxGroupInput(session, "vybrane_materialy",
+                             choices = materialy,
+                             selected = materialy)
+  })
+  
+  # --- 9. Sloupcový graf napříč okresy ---
+  output$sloupcovyGrafMaterial <- renderPlot({
+    req(input$vybrane_materialy)
+    df_filtered <- df_mat %>% filter(material_txt %in% input$vybrane_materialy)
+    df_agg <- df_filtered %>%
+      group_by(nazev_norm, material_txt) %>%
+      summarise(pocet = sum(pocet, na.rm = TRUE), .groups = "drop")
+    
+    ggplot(df_agg, aes(x = reorder(nazev_norm, -pocet), y = pocet, fill = material_txt)) +
+      geom_bar(stat = "identity", position = "stack") +
+      labs(x = "Okres", y = "Počet budov", fill = "Materiál") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  })
 }
 
-# Spuštění aplikace
+# ==== Spuštění aplikace ====
 shinyApp(ui, server)
