@@ -108,10 +108,10 @@ server <- function(input, output, session) {
         layerId = ~nazev_norm,
         fillColor = ~pal(pocet),
         fillOpacity = 0.8,
-        color = "white",
+        color = "darkgreen",
         weight = 1,
         label = ~paste0(NAZEV_polygon, ": ", format(pocet, big.mark = " ", scientific = FALSE)),
-        highlightOptions = highlightOptions(color = "black", weight = 2, bringToFront = TRUE)
+        highlightOptions = highlightOptions(color = "blue", weight = 2, bringToFront = TRUE,fill = TRUE,fillOpacity = 0.2,fillColor = "blue")
       ) %>%
       addLegend(
         pal = pal,
@@ -126,9 +126,28 @@ server <- function(input, output, session) {
   
   # --- 5. Kliknutí na polygon ---
   observeEvent(input$mapaCR_shape_click, {
-    vybranyOkres(trimws(input$mapaCR_shape_click$id))
+    vybrany_id <- trimws(input$mapaCR_shape_click$id)
+    vybranyOkres(vybrany_id)
+    
+    # Přepnutí na detail
     updateNavbarPage(session, "Mapa okresů", selected = "Detail okresu")
+    
+    # Zvýraznění vybraného polygonu
+    data <- reactive_data()
+    detail <- data %>% filter(nazev_norm == vybrany_id)
+    
+    leafletProxy("mapaCR") %>%
+      clearGroup("vybrany") %>%
+      addPolygons(
+        data = detail,
+        fillColor = "blue",
+        fillOpacity = 0.4,
+        color = "black",
+        weight = 3,
+        group = "vybrany"
+      )
   })
+  
   
   # --- 6. Výstupy pro detail okresu ---
   output$okresNazev <- renderText({
