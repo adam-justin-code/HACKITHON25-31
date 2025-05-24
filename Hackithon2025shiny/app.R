@@ -45,34 +45,40 @@ server <- function(input, output, session) {
   df_db <- as.data.frame(data_list$okresy)
   df_db$pocet <- as.numeric(df_db$pocet)
   
-  # 2. Úprava názvu Prahy a normalizace názvů z API
+  # 2. Normalizace názvů z API
   df_db <- df_db %>%
-    mutate(NAZEV_api = case_when(
-      uzemi_txt == "Praha" ~ "území Hlavního města Prahy",
-      TRUE ~ uzemi_txt
-    )) %>%
-    mutate(nazev_norm = stri_trans_general(tolower(NAZEV_api), "Latin-ASCII"))
+    mutate(
+      NAZEV_api = case_when(
+        uzemi_txt == "Praha" ~ "území Hlavního města Prahy",
+        TRUE ~ uzemi_txt
+      ),
+      nazev_norm = stri_trans_general(tolower(NAZEV_api), "Latin-ASCII"),
+      nazev_norm = trimws(nazev_norm)
+    )
   
   # 3. Načtení shapefile s okresy
   okresy <- st_read("data/1/OKRESY_P.shp.geojson", quiet = TRUE)
   okresy <- st_transform(okresy, 4326)
+  
+  # 4. Normalizace názvů v polygonu
   okresy <- okresy %>%
     mutate(
       NAZEV_polygon = as.character(NAZEV),
-      nazev_norm = stri_trans_general(tolower(NAZEV_polygon), "Latin-ASCII")
+      nazev_norm = stri_trans_general(tolower(NAZEV_polygon), "Latin-ASCII"),
+      nazev_norm = trimws(nazev_norm)
     )
   
-  # 4. Spojení prostorových dat s daty z API
+  # 5. Spojení prostorových dat s daty z API
   map_data <- left_join(okresy, df_db, by = "nazev_norm")
   reactive_data <- reactiveVal(map_data)
   
-  # 5. Reaktivní hodnota vybraného okresu
+  # 6. Reaktivní hodnota vybraného okresu
   vybranyOkres <- reactiveVal(NULL)
   
-  # 6. Barevná paleta
+  # 7. Barevná paleta
   pal <- colorNumeric("YlOrRd", domain = map_data$pocet, na.color = "#cccccc")
   
-  # 7. Výstup hlavní mapy
+  # 8. Výstup hlavní mapy
   output$mapaCR <- renderLeaflet({
     leaflet(map_data, options = leafletOptions(minZoom = 8, maxZoom = 15)) %>%
       addTiles() %>%
@@ -96,15 +102,13 @@ server <- function(input, output, session) {
       setMaxBounds(11.8, 48.5, 18.9, 51.3)
   })
   
-  # 8. Kliknutí na polygon
+  # 9. Kliknutí na polygon
   observeEvent(input$mapaCR_shape_click, {
-    vybranyOkres(input$mapaCR_shape_click$id)
+    vybranyOkres(trimws(input$mapaCR_shape_click$id))
     updateNavbarPage(session, "Mapa okresů", selected = "Detail okresu")
-    print(unique(map_data$nazev_norm))
-    print(input$mapaCR_shape_click$id)
   })
   
-  # 9. Výstup názvu okresu
+  # 10. Výstup názvu okresu
   output$okresNazev <- renderText({
     req(vybranyOkres())
     data <- reactive_data()
@@ -112,15 +116,18 @@ server <- function(input, output, session) {
     paste("Okres:", nazev_okresu)
   })
   
-  # 10. Detailní mapa okresu
+  # 11. Detailní mapa okresu
   output$okresMapa <- renderLeaflet({
     req(vybranyOkres())
     data <- reactive_data()
-    detail <- subset(data, nazev_norm == vybranyOkres())
+    detail <- data %>% filter(trimws(nazev_norm) == vybranyOkres())
     
-    bbox <- st_bbox(detail)
-    center_lng <- (bbox["xmin"] + bbox["xmax"]) / 2
-    center_lat <- (bbox["ymin"] + bbox["ymax"]) / 2
+    if (nrow(detail) == 0) {
+      return(leaflet() %>% addTiles())
+    }
+    
+    center <- st_centroid(st_union(detail))
+    coords <- st_coordinates(center)
     
     leaflet(detail, options = leafletOptions(minZoom = 11, maxZoom = 18)) %>%
       addTiles() %>%
@@ -130,7 +137,7 @@ server <- function(input, output, session) {
         weight = 5,
         fillOpacity = 0.2
       ) %>%
-      setView(lng = center_lng, lat = center_lat, zoom = 11)
+      setView(lng = coords[1], lat = coords[2], zoom = 11)
   })
 }
 
