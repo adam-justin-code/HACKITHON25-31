@@ -5,6 +5,7 @@ library(httr)
 library(jsonlite)
 library(dplyr)
 library(stringi)
+library(ggplot2)
 
 # UI
 ui <- navbarPage("Vizualizace statistických informací na území ČR",
@@ -19,11 +20,14 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                             column(
                               width = 4,
                               div(
-                                style = "background-color: #f0f0f0; padding: 20px; height: 90vh;",
+                                style = "background-color: #f0f0f0; padding: 20px; height: 90vh; overflow-y: auto;",
                                 h3(textOutput("okresNazev")),
+                                h4("Počet obyvatel:"),
                                 h3(textOutput("pocetObyvatel")),
-                                p("Zde se zobrazí detailní informace o vybraném okrese."),
-                                p("Sem můžeš přidat další statistiky, grafy, nebo tabulky.")
+                                h4("Poměr mužů a žen:"),
+                                plotOutput("grafPohlavi", height = "250px"),
+                                h4("Materiál budov:"),
+                                plotOutput("grafMaterial", height = "250px"),
                               )
                             ),
                             column(
@@ -39,54 +43,46 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
 
 # SERVER
 server <- function(input, output, session) {
-  # 1. Načtení dat z API
-  res <- httr::GET("http://127.0.0.1:8000/okresy")
-  json_text <- content(res, as = "text", encoding = "UTF-8")
-  data_list <- fromJSON(json_text)
-  df_db <- as.data.frame(data_list$okresy)
-  df_db$pocet <- as.numeric(df_db$pocet)
+  # === 1. Získání dat z API ===
   
-  # 2. Normalizace názvů z API
-  df_db <- df_db %>%
+  ## API: /okresy (muži, ženy)
+  res_obyv <- httr::GET("http://127.0.0.1:8000/okresy")
+  df_obyv <- fromJSON(content(res_obyv, "text", encoding = "UTF-8"))$okresy %>%
+    as.data.frame() %>%
     mutate(
-      NAZEV_api = case_when(
-        uzemi_txt == "Praha" ~ "území Hlavního města Prahy",
-        TRUE ~ uzemi_txt
-      ),
-      nazev_norm = stri_trans_general(tolower(NAZEV_api), "Latin-ASCII"),
-      nazev_norm = trimws(nazev_norm)
+      nazev_norm = stri_trans_general(tolower(trimws(uzemi_txt)), "Latin-ASCII"),
+      pohlavi_txt = tolower(pohlavi_txt)
     )
   
-  # 3. Načtení shapefile s okresy
-  okresy <- st_read("data/1/OKRESY_P.shp.geojson", quiet = TRUE)
-  okresy <- st_transform(okresy, 4326)
+  df_obyv_suma <- df_obyv %>%
+    group_by(nazev_norm) %>%
+    summarise(pocet = sum(pocet, na.rm = TRUE), .groups = "drop")
   
-  # 4. Normalizace názvů v polygonu
-  okresy <- okresy %>%
+  ## API: /druh_materialu
+  res_mat <- httr::GET("http://127.0.0.1:8000/druh_materialu")
+  df_mat <- fromJSON(content(res_mat, "text", encoding = "UTF-8"))$okresy %>%
+    as.data.frame() %>%
+    mutate(nazev_norm = stri_trans_general(tolower(trimws(uzemi_txt)), "Latin-ASCII"))
+  
+  # === 2. Načtení shapefile ===
+  okresy <- st_read("data/1/OKRESY_P.shp.geojson", quiet = TRUE) %>%
+    st_transform(4326) %>%
     mutate(
       NAZEV_polygon = as.character(NAZEV),
-      nazev_norm = stri_trans_general(tolower(NAZEV_polygon), "Latin-ASCII"),
-      nazev_norm = trimws(nazev_norm)
+      nazev_norm = stri_trans_general(tolower(trimws(NAZEV)), "Latin-ASCII")
     )
-  output$pocetObyvatel <- renderText({
-    req(vybranyOkres())
-    data <- reactive_data()
-    pocet <- data$pocet[data$nazev_norm == vybranyOkres()]
-    if (is.na(pocet)) return("N/A")
-    format(pocet, big.mark = " ", scientific = FALSE)
-  })
   
-  # 5. Spojení prostorových dat s daty z API
-  map_data <- left_join(okresy, df_db, by = "nazev_norm")
+  # === 3. Spojení prostorových dat s počtem obyvatel ===
+  map_data <- left_join(okresy, df_obyv_suma, by = "nazev_norm")
   reactive_data <- reactiveVal(map_data)
   
-  # 6. Reaktivní hodnota vybraného okresu
+  # === 4. Vybraný okres (reactive)
   vybranyOkres <- reactiveVal(NULL)
   
-  # 7. Barevná paleta
+  # === 5. Výpočet barev
   pal <- colorNumeric("YlOrRd", domain = map_data$pocet, na.color = "#cccccc")
   
-  # 8. Výstup hlavní mapy
+  # === 6. Hlavní mapa
   output$mapaCR <- renderLeaflet({
     leaflet(map_data, options = leafletOptions(minZoom = 8, maxZoom = 15)) %>%
       addTiles() %>%
@@ -110,25 +106,34 @@ server <- function(input, output, session) {
       setMaxBounds(11.8, 48.5, 18.9, 51.3)
   })
   
-  # 9. Kliknutí na polygon
+  # === 7. Kliknutí na polygon
   observeEvent(input$mapaCR_shape_click, {
     vybranyOkres(trimws(input$mapaCR_shape_click$id))
     updateNavbarPage(session, "Mapa okresů", selected = "Detail okresu")
   })
   
-  # 10. Výstup názvu okresu
+  # === 8. Výpis názvu
   output$okresNazev <- renderText({
     req(vybranyOkres())
     data <- reactive_data()
-    nazev_okresu <- data$NAZEV_polygon[data$nazev_norm == vybranyOkres()]
-    paste("Okres:", nazev_okresu)
+    data$NAZEV_polygon[data$nazev_norm == vybranyOkres()]
   })
   
-  # 11. Detailní mapa okresu
+  # === 9. Výpis počtu obyvatel
+  output$pocetObyvatel <- renderText({
+    req(vybranyOkres())
+    data <- reactive_data()
+    pocet <- data$pocet[data$nazev_norm == vybranyOkres()]
+    if (is.na(pocet)) return("N/A")+
+    format(pocet, big.mark = " ", scientific = FALSE)
+    print(pocet)
+  })
+  
+  # === 10. Mapa vybraného okresu
   output$okresMapa <- renderLeaflet({
     req(vybranyOkres())
     data <- reactive_data()
-    detail <- data %>% filter(trimws(nazev_norm) == vybranyOkres())
+    detail <- data %>% filter(nazev_norm == vybranyOkres())
     
     if (nrow(detail) == 0) {
       return(leaflet() %>% addTiles())
@@ -146,6 +151,29 @@ server <- function(input, output, session) {
         fillOpacity = 0.2
       ) %>%
       setView(lng = coords[1], lat = coords[2], zoom = 11)
+  })
+  
+  # === 11. Graf: poměr muž/žena
+  output$grafPohlavi <- renderPlot({
+    req(vybranyOkres())
+    df_okres <- df_obyv %>% filter(nazev_norm == vybranyOkres())
+    ggplot(df_okres, aes(x = "", y = pocet, fill = pohlavi_txt)) +
+      geom_bar(stat = "identity", width = 1) +
+      coord_polar("y") +
+      theme_void() +
+      scale_fill_manual(values = c("muž" = "#1f77b4", "žena" = "#ff7f0e")) +
+      labs(fill = "Pohlaví")
+  })
+  
+  # === 12. Graf: materiál budov
+  output$grafMaterial <- renderPlot({
+    req(vybranyOkres())
+    df_okres <- df_mat %>% filter(nazev_norm == vybranyOkres())
+    ggplot(df_okres, aes(x = "", y = pocet, fill = material_txt)) +
+      geom_bar(stat = "identity", width = 1) +
+      coord_polar("y") +
+      theme_void() +
+      labs(fill = "Materiál")
   })
 }
 
