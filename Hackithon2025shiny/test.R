@@ -4,12 +4,14 @@ library(sf)
 
 # UI
 ui <- navbarPage("Vizualizace statistických informací na území ČR",
+                 
                  tabPanel("Mapa okresů",
                           div(
                             style = "height:90vh; width:100%;",
                             leafletOutput("mapaCR", height = "100%", width = "100%")
                           )
                  ),
+                 
                  tabPanel("Detail okresu",
                           fluidRow(
                             column(
@@ -17,8 +19,8 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                               div(
                                 style = "background-color: #f0f0f0; padding: 20px; height: 90vh;",
                                 h3(textOutput("okresNazev")),
-                                p("Zde se zobrazí detailní informace o vybraném okrese."),
-                                p("Sem můžeš přidat další statistiky, grafy, nebo tabulky.")
+                                p("Zde se zobrazí obce náležící do vybraného okresu."),
+                                p("Sem můžeš přidat další statistiky, přehled obcí nebo tabulky.")
                               )
                             ),
                             column(
@@ -30,19 +32,22 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
                             )
                           )
                  )
-                 
 )
 
-# Server
+# SERVER
 server <- function(input, output, session) {
-  # Načtení dat
+  # Načti okresy
   okresy <- st_read("data/1/OKRESY_P.shp.geojson", quiet = TRUE)
   okresy <- st_transform(okresy, 4326)
   
-  # Reactive value pro výběr okresu
+  # Načti obce
+  obce <- st_read("data/1/OBCE_P.geojson", quiet = TRUE)
+  obce <- st_transform(obce, 4326)
+  
+  # Reactive hodnota: vybraný okres
   vybranyOkres <- reactiveVal(NULL)
   
-  # Výstup hlavní mapy s omezením zoomu a bounds na ČR
+  # Mapa ČR – okresy
   output$mapaCR <- renderLeaflet({
     leaflet(okresy, options = leafletOptions(minZoom = 8, maxZoom = 15)) %>%
       addTiles() %>%
@@ -58,40 +63,52 @@ server <- function(input, output, session) {
       setMaxBounds(11.8, 48.5, 18.9, 51.3)
   })
   
-  # Kliknutí na polygon => přejdi do detailu
+  # Kliknutí na okres => přechod do detailu
   observeEvent(input$mapaCR_shape_click, {
     vybranyOkres(input$mapaCR_shape_click$id)
-    updateNavbarPage(session, "Mapa okresů", selected = "Detail okresu")
+    updateNavbarPage(session, "Vizualizace statistických informací na území ČR", selected = "Detail okresu")
   })
   
-  # Výstup názvu okresu
+  # Název okresu v textu
   output$okresNazev <- renderText({
     req(vybranyOkres())
     paste("Okres:", vybranyOkres())
   })
   
-  # Výstup detailní mapy s omezením na konkrétní okres
+  # Detailní mapa obcí v okresu
   output$okresMapa <- renderLeaflet({
     req(vybranyOkres())
-    detail <- subset(okresy, NAZEV == vybranyOkres())
     
-    # Bounding box okresu
-    bbox <- st_bbox(detail)
+    # Najdi záznam okresu podle názvu
+    okres_detail <- subset(okresy, NAZEV == vybranyOkres())
     
-    # Výpočet středu bboxu (bez centroidu = žádné varování)
+    # Získej kód okresu
+    kod_okresu <- as.character(okres_detail$KOD)
+    
+    # Vyfiltruj obce patřící do okresu
+    obce_v_okrese <- subset(obce, OKRES_KOD == kod_okresu)
+    
+    # Výpočet středu z bounding boxu
+    bbox <- st_bbox(okres_detail)
     center_lng <- (bbox["xmin"] + bbox["xmax"]) / 2
     center_lat <- (bbox["ymin"] + bbox["ymax"]) / 2
     
-    leaflet(detail, options = leafletOptions(minZoom = 11, maxZoom = 18)) %>%
+    leaflet(obce_v_okrese, options = leafletOptions(minZoom = 10, maxZoom = 18)) %>%
       addTiles() %>%
       addPolygons(
         fillColor = "blue",
         color = "black",
-        weight = 5,
-        fillOpacity = 0.05
+        weight = 1,
+        fillOpacity = 0.4,
+        popup = ~NAZEV
+      ) %>%
+      setView(lng = center_lng, lat = center_lat, zoom = 11) %>%
+      setMaxBounds(
+        lng1 = bbox["xmin"], lat1 = bbox["ymin"],
+        lng2 = bbox["xmax"], lat2 = bbox["ymax"]
       )
   })
 }
 
-# Spuštění aplikace
-shinyApp(ui, server)
+# Spuštění
+shinyApp(ui = ui, server = server)
