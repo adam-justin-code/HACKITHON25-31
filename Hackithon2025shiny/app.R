@@ -58,8 +58,9 @@ ui <- navbarPage("Vizualizace statistických informací na území ČR",
 server <- function(input, output, session) {
   # --- Načtení dat ---
   df_nezamestnanost <- read.csv("data/nezamestnanost.csv", encoding = "UTF-8") %>%
-    rename(NAZEV_polygon = Obec, nezamestnanost = Hodnota) %>%
-    mutate(nazev_norm = stri_trans_general(tolower(trimws(NAZEV_polygon)), "Latin-ASCII"))
+    rename(nezamestnanost = Hodnota) %>%
+    mutate(nazev_norm = stri_trans_general(tolower(trimws(Obec)), "Latin-ASCII")) %>%
+    select(-Obec)
   
   df_pozary <- read.csv("data/pozary.csv", fileEncoding = "UTF-8", sep = ",", stringsAsFactors = FALSE) %>%
     rename(pozary = Hodnota) %>%
