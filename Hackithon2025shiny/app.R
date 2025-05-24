@@ -163,14 +163,29 @@ server <- function(input, output, session) {
   # --- 7. Grafy pro detail okresu ---
   output$grafPohlavi <- renderPlot({
     req(vybranyOkres())
-    df_okres <- df_obyv %>% filter(nazev_norm == vybranyOkres())
+    
+    # Filtrování dat pro vybraný okres
+    df_okres <- df_obyv %>% 
+      filter(nazev_norm == vybranyOkres()) %>%
+      group_by(pohlavi_txt) %>%
+      summarise(pocet = sum(pocet), .groups = "drop") %>%
+      mutate(
+        procenta = round(pocet / sum(pocet) * 100, 1),
+        popisek = paste0(pohlavi_txt, "\n", procenta, "%")
+      )
+    
+    # Vykreslení koláčového grafu s procenty
     ggplot(df_okres, aes(x = "", y = pocet, fill = pohlavi_txt)) +
       geom_bar(stat = "identity", width = 1) +
       coord_polar("y") +
+      geom_text(aes(label = popisek),
+                position = position_stack(vjust = 0.5),
+                size = 5, color = "white", fontface = "bold") +
       theme_void() +
       scale_fill_manual(values = c("muž" = "#1f77b4", "žena" = "#ff7f0e")) +
       labs(fill = "Pohlaví")
   })
+  
   
   output$grafMaterial <- renderPlot({
     req(vybranyOkres())
