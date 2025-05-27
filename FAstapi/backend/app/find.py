@@ -2,12 +2,9 @@ import sqlite3
 
 conn = sqlite3.connect("db.db")
 cursor = conn.cursor()
-
-# Najdi všechny tabulky
 cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
 tabulky = [row[0] for row in cursor.fetchall()]
 
-# Najdi tabulky, které mají sloupec 'okres'
 tabulky_s_okresem = []
 
 for tabulka in tabulky:
@@ -16,4 +13,4 @@ for tabulka in tabulky:
     if any("uzemi_typ" in s.lower() for s in sloupce):
         tabulky_s_okresem.append((tabulka, sloupce))
 
-print(f"✅ Tabulky obsahující sloupec okres: {[t[0] for t in tabulky_s_okresem]}")
+print(f"Tabulky obsahující sloupec okres: {[t[0] for t in tabulky_s_okresem]}")
